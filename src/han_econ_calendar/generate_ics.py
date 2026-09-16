@@ -7,7 +7,7 @@ loop per natcd, loop that natcd's filenames:
     row has columns: 날짜, 시간, 국가, 경제지표, 실제, 예상, 이전, 중요도
     loop row:
         use 날짜, 시간 to define time and date, timezone to GMT so it can import to google calendar
-        use 국가, 경제지표 to define schedule name, format: '[$국가]$경제지표'
+        use 국가, 경제지표 to define schedule name, format: '$경제지표'
         use 실제, 예상, 이전, 중요도 to define schedule body, format '실제: $실제, 예상: $예상, 이전: $이전\n중요도: $중요도'
 use vobject so export one ics calendar file per natcd, to <workspace_dir>/serve/<natcd>.ics
 """
@@ -30,6 +30,7 @@ SERVE_DIR = WORKSPACE_DIR / "serve"
 _FILENAME_RE = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{2})_(?P<natcd>.+)$")
 # row dates look like "09.14 (Mon)", no year
 _DATE_RE = re.compile(r"(?P<month>\d{2})\.(?P<day>\d{2})")
+_REQUIRED_COLUMNS = ["날짜", "시간", "국가", "경제지표", "실제", "예상", "이전", "중요도"]
 
 
 def _xls_files() -> list[Path]:
@@ -52,13 +53,15 @@ def _event_start(
         year += 1
 
     event_date = date(year, month, day)
-    try:
-        event_time = (
-            datetime.strptime(str(time_value).strip(), "%H:%M")
-            .replace(tzinfo=UTC)
-            .time()
-        )
-    except ValueError:
+    time_str = str(time_value).strip()
+    if time_str:
+        try:
+            event_time = (
+                datetime.strptime(time_str, "%H:%M").replace(tzinfo=UTC).time()
+            )
+        except ValueError as exc:
+            raise ValueError(f"unrecognized time: {time_value!r}") from exc
+    else:
         event_time = datetime.min.time()
     return datetime.combine(event_date, event_time, tzinfo=UTC)
 
@@ -95,13 +98,17 @@ def generate_ics() -> list[Path]:
 
         for xls_path in xls_paths:
             match = _FILENAME_RE.match(xls_path.stem)
-            assert match
+            if match is None:
+                raise RuntimeError(f"Unexpected filename: {xls_path}")
             year, file_month = int(match["year"]), int(match["month"])
 
             try:
                 df = pd.read_excel(xls_path, dtype=str, engine="calamine").fillna("")
-            except CalamineError:
-                raise RuntimeError(f"Not parsable: {xls_path}")
+            except CalamineError as err:
+                raise RuntimeError(f"Not parsable: {xls_path}") from err
+            missing_columns = [c for c in _REQUIRED_COLUMNS if c not in df.columns]
+            if missing_columns:
+                raise RuntimeError(f"{xls_path} missing columns: {missing_columns}")
             for _, row in df.iterrows():
                 _add_event(calendar, row, year, file_month)
 
