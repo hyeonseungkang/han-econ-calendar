@@ -1,15 +1,20 @@
-"""
-read entire file names in <workspace_dir>/data/
-filter file has '.xls'
-group filenames by natcd (parsed from filename)
-loop per natcd, loop that natcd's filenames:
-    import pandas
-    row has columns: 날짜, 시간, 국가, 경제지표, 실제, 예상, 이전, 중요도
-    loop row:
-        use 날짜, 시간 to define time and date, timezone to GMT so it can import to google calendar
-        use 국가, 경제지표 to define schedule name, format: '$경제지표'
-        use 실제, 예상, 이전, 중요도 to define schedule body, format '실제: $실제, 예상: $예상, 이전: $이전\n중요도: $중요도'
-use vobject so export one ics calendar file per natcd, to <workspace_dir>/serve/<natcd>.ics
+"""Convert fetched ``.xls`` exports into per-nation iCalendar files.
+
+Every ``.xls`` file directly under ``DATA_DIR`` (named
+``<year>-<month>_<natcd>.xls`` by ``fetch.py``) is read with columns
+날짜 (date), 시간 (time), 국가 (nation), 경제지표 (indicator), 실제 (actual),
+예상 (forecast), 이전 (previous), and 중요도 (importance). Files are grouped
+by ``natcd``, and for each group every row becomes one ``VEVENT``:
+
+- ``dtstart`` is built from 날짜/시간, resolved against the file's
+  ``<year>-<month>`` (with a rollover for dates near a year boundary) and
+  expressed in UTC.
+- ``summary`` is the indicator name (경제지표).
+- ``description`` is ``실제: ..., 예상: ..., 이전: ...`` followed by
+  ``중요도: ...`` on its own line.
+
+One ``vobject`` iCalendar is written per ``natcd`` to
+``<workspace_dir>/serve/<natcd>.ics``.
 """
 
 import re
@@ -43,12 +48,35 @@ _REQUIRED_COLUMNS = [
 
 
 def _xls_files() -> list[Path]:
+    """List every ``.xls`` file directly under ``DATA_DIR``, sorted by name."""
     return sorted(p for p in DATA_DIR.iterdir() if p.suffix == ".xls")
 
 
 def _event_start(
     date_value: str, time_value: str, year: int, file_month: int
 ) -> datetime:
+    """Resolve one row's 날짜/시간 into a timezone-aware UTC event start.
+
+    ``date_value`` carries no year (e.g. ``"09.14 (Mon)"``), so it is
+    resolved against ``year``/``file_month`` (the file's own year and
+    month). If the row's month is more than 6 months away from
+    ``file_month``, ``year`` is rolled to the adjacent year, to handle
+    rows near a December/January boundary.
+
+    Args:
+        date_value: Raw 날짜 cell, formatted ``MM.DD (Day)``.
+        time_value: Raw 시간 cell, formatted ``HH:MM``, or empty/blank for
+            an all-day event (midnight is used).
+        year: The source file's year, from its filename.
+        file_month: The source file's month, from its filename.
+
+    Returns:
+        The event start as a UTC ``datetime``.
+
+    Raises:
+        ValueError: If ``date_value`` or a non-empty ``time_value`` does
+            not match the expected format.
+    """
     match = _DATE_RE.match(str(date_value).strip())
     if not match:
         raise ValueError(f"unrecognized date: {date_value!r}")
@@ -76,6 +104,16 @@ def _event_start(
 def _add_event(
     calendar: vobject.base.Component, row: pd.Series, year: int, file_month: int
 ) -> None:
+    """Append one ``VEVENT`` built from a single row to ``calendar`` in place.
+
+    Args:
+        calendar: The ``vobject`` iCalendar component to add the event to.
+        row: A row from the parsed ``.xls`` dataframe; must contain the
+            columns in ``_REQUIRED_COLUMNS``.
+        year: The source file's year, passed through to :func:`_event_start`.
+        file_month: The source file's month, passed through to
+            :func:`_event_start`.
+    """
     event = calendar.add("vevent")
     event.add("dtstart").value = _event_start(
         row["날짜"], row["시간"], year, file_month
@@ -87,6 +125,14 @@ def _add_event(
 
 
 def _files_by_natcd() -> dict[str, list[Path]]:
+    """Group every ``.xls`` file under ``DATA_DIR`` by the natcd in its filename.
+
+    Files whose stem does not match ``_FILENAME_RE`` are silently skipped.
+
+    Returns:
+        A mapping of natcd to its matching file paths, in the sorted order
+        returned by :func:`_xls_files`.
+    """
     by_natcd: defaultdict[str, list[Path]] = defaultdict(list)
     for xls_path in _xls_files():
         match = _FILENAME_RE.match(xls_path.stem)
@@ -97,6 +143,18 @@ def _files_by_natcd() -> dict[str, list[Path]]:
 
 
 def generate_ics() -> list[Path]:
+    """Build one iCalendar per natcd from ``DATA_DIR`` and write it to ``SERVE_DIR``.
+
+    See the module docstring for the row-to-event mapping.
+
+    Returns:
+        The path of every ``.ics`` file written, one per natcd.
+
+    Raises:
+        RuntimeError: If a file's data can't be parsed as ``.xls``, is
+            missing a required column, or its filename doesn't match the
+            ``<year>-<month>_<natcd>.xls`` pattern used by :func:`_xls_files`.
+    """
     SERVE_DIR.mkdir(parents=True, exist_ok=True)
 
     ics_paths = []
