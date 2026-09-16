@@ -1,3 +1,20 @@
+## Architecture
+
+Data flows across three branches:
+
+- `main` — application code and workflow definitions. `data/` and `serve/` are gitignored here.
+- `data-storage` — an orphan branch holding the crawled `.xls` exports (`<year>-<month>_<natcd>.xls`). `.github/workflows/crawl-and-deploy.yml` attaches this branch as a `./data` git worktree, runs `fetch()` (reusing already-saved files for months before the current one) and `generate_ics()`, then commits any changes back to this branch.
+- GitHub Pages — deployed straight from the `serve/*.ics` output via `actions/upload-pages-artifact` + `actions/deploy-pages` (Pages source: GitHub Actions, not a branch), so generated `.ics` files never enter git history.
+
+### Workflows
+
+- `.github/workflows/crawl-and-deploy.yml` — runs daily (`0 3 * * *` UTC) and on manual dispatch. Crawls, regenerates calendars, pushes updated data to `data-storage`, deploys `serve/` to GitHub Pages.
+- `.github/workflows/squash-data-branch.yml` — runs weekly (`0 0 * * 1` UTC) and on manual dispatch. Squashes `data-storage`'s history into a single commit to keep the branch size bounded.
+
+Both workflows share the `data-storage-branch` concurrency group, so a scheduled crawl and a squash run never write to `data-storage` at the same time.
+
+## Configuration
+
 .example.env
 ```
 FETCH_BASE_URL="https://asp.zeroin.co.kr/eco/hkd/wei/0601_excel.php?"
