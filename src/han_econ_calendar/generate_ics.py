@@ -1,5 +1,5 @@
 """
-read entire file names in <workspace_dir>/temp/
+read entire file names in <workspace_dir>/data/
 filter file has '.xls'
 group filenames by natcd (parsed from filename)
 loop per natcd, loop that natcd's filenames:
@@ -22,7 +22,7 @@ import vobject
 from python_calamine import CalamineError
 from vobject.icalendar import utc as UTC
 
-from .fetch import TEMP_DIR, WORKSPACE_DIR
+from .fetch import DATA_DIR, WORKSPACE_DIR
 
 SERVE_DIR = WORKSPACE_DIR / "serve"
 
@@ -34,7 +34,7 @@ _REQUIRED_COLUMNS = ["날짜", "시간", "국가", "경제지표", "실제", "�
 
 
 def _xls_files() -> list[Path]:
-    return sorted(p for p in TEMP_DIR.iterdir() if p.suffix == ".xls")
+    return sorted(p for p in DATA_DIR.iterdir() if p.suffix == ".xls")
 
 
 def _event_start(
