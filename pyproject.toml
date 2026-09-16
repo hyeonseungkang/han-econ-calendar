@@ -1,7 +1,7 @@
 [project]
 name = "han-econ-calendar"
 version = "0.1.0"
-description = "Add your description here"
+description = "Fetch and convert Hankyung economic calendar data to per-nation ICS files"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
