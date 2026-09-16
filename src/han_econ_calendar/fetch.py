@@ -4,7 +4,10 @@ FETCH_QUERY_STR_NATCD_CANDIDATE from env
 str_nation is english, korean two paired-comma joined str, must be one str
 loop per nation: str_nation and str_natcd entries match by position
 iterate month by month, jan to dec, in this year and -1y, +1y
-save files in <workspace_dir>/temp/
+for months strictly before the current month, reuse an existing saved file
+instead of re-downloading (past data is final); current and future months
+are always re-downloaded
+save files in <workspace_dir>/data/
 """
 
 import calendar
@@ -18,7 +21,7 @@ from string import Template
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
 ENV_FILE = WORKSPACE_DIR / ".env"
-TEMP_DIR = WORKSPACE_DIR / "temp"
+DATA_DIR = WORKSPACE_DIR / "data"
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -95,16 +98,28 @@ def _download(url: str, timeout: float = 30.0) -> bytes:
         return response.read()
 
 
+def _is_past_month(month_start: date, today: date) -> bool:
+    return (month_start.year, month_start.month) < (today.year, today.month)
+
+
 def fetch() -> list[Path]:
     _load_env_file(ENV_FILE)
     base_url = os.environ["FETCH_BASE_URL"]
     query_format = os.environ["FETCH_QUERY_FORMAT"]
 
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().astimezone().date()
 
     saved_files = []
     for natcd, str_nation, str_natcd in _nations():
         for start_date, end_date in _month_ranges():
+            out_path = (
+                DATA_DIR / f"{start_date.year}-{start_date.month:02d}_{natcd}.xls"
+            )
+            if out_path.exists() and _is_past_month(start_date, today):
+                saved_files.append(out_path)
+                continue
+
             url = _build_url(
                 base_url, query_format, start_date, end_date, str_nation, str_natcd
             )
@@ -114,9 +129,6 @@ def fetch() -> list[Path]:
                 print(f"failed to download {url}: {exc}")
                 continue
 
-            out_path = (
-                TEMP_DIR / f"{start_date.year}-{start_date.month:02d}_{natcd}.xls"
-            )
             out_path.write_bytes(data)
             saved_files.append(out_path)
 
