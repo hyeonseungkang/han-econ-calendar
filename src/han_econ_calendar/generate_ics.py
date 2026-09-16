@@ -30,7 +30,16 @@ SERVE_DIR = WORKSPACE_DIR / "serve"
 _FILENAME_RE = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{2})_(?P<natcd>.+)$")
 # row dates look like "09.14 (Mon)", no year
 _DATE_RE = re.compile(r"(?P<month>\d{2})\.(?P<day>\d{2})")
-_REQUIRED_COLUMNS = ["날짜", "시간", "국가", "경제지표", "실제", "예상", "이전", "중요도"]
+_REQUIRED_COLUMNS = [
+    "날짜",
+    "시간",
+    "국가",
+    "경제지표",
+    "실제",
+    "예상",
+    "이전",
+    "중요도",
+]
 
 
 def _xls_files() -> list[Path]:
@@ -56,9 +65,7 @@ def _event_start(
     time_str = str(time_value).strip()
     if time_str:
         try:
-            event_time = (
-                datetime.strptime(time_str, "%H:%M").replace(tzinfo=UTC).time()
-            )
+            event_time = datetime.strptime(time_str, "%H:%M").replace(tzinfo=UTC).time()
         except ValueError as exc:
             raise ValueError(f"unrecognized time: {time_value!r}") from exc
     else:
