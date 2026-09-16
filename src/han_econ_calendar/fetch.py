@@ -1,6 +1,7 @@
 """
 get FETCH_BASE_URL, FETCH_QUERY_FORMAT, FETCH_QUERY_STR_NATION_CANDIDATE,
 FETCH_QUERY_STR_NATCD_CANDIDATE from env
+str_nation is english, korean two paired-comma joined str, must be one str
 loop per nation: str_nation and str_natcd entries match by position
 iterate month by month, jan to dec, in this year and -1y, +1y
 save files in <workspace_dir>/temp/
@@ -8,6 +9,7 @@ save files in <workspace_dir>/temp/
 
 import calendar
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime
@@ -57,9 +59,16 @@ def _nations() -> list[tuple[str, str, str]]:
 
     nations = []
     for nation_pair, natcd in zip(nation_candidates, natcd_candidates, strict=True):
-        english, korean = nation_pair.split(",")
+        parts = nation_pair.split(",")
+        if len(parts) != 2:
+            raise ValueError(
+                f"FETCH_QUERY_STR_NATION_CANDIDATE entry {nation_pair!r} "
+                "must contain exactly one comma separating English and Korean names"
+            )
+        english, korean = parts
         str_nation = ",".join(urllib.parse.quote(name) for name in (english, korean))
-        nations.append((natcd, str_nation, natcd))
+        str_natcd = urllib.parse.quote(natcd)
+        nations.append((natcd, str_nation, str_natcd))
     return nations
 
 
@@ -80,9 +89,9 @@ def _build_url(
     return base_url + query
 
 
-def _download(url: str) -> bytes:
+def _download(url: str, timeout: float = 30.0) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
 
 
@@ -99,7 +108,11 @@ def fetch() -> list[Path]:
             url = _build_url(
                 base_url, query_format, start_date, end_date, str_nation, str_natcd
             )
-            data = _download(url)
+            try:
+                data = _download(url)
+            except urllib.error.URLError as exc:
+                print(f"failed to download {url}: {exc}")
+                continue
 
             out_path = (
                 TEMP_DIR / f"{start_date.year}-{start_date.month:02d}_{natcd}.xls"
