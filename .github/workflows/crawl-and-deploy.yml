@@ -1,0 +1,70 @@
+name: Crawl and deploy
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: data-storage-branch
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      FETCH_BASE_URL: ${{ vars.FETCH_BASE_URL }}
+      FETCH_QUERY_FORMAT: ${{ vars.FETCH_QUERY_FORMAT }}
+      FETCH_QUERY_STR_NATION_CANDIDATE: ${{ vars.FETCH_QUERY_STR_NATION_CANDIDATE }}
+      FETCH_QUERY_STR_NATCD_CANDIDATE: ${{ vars.FETCH_QUERY_STR_NATCD_CANDIDATE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Attach data-storage branch as ./data worktree
+        run: |
+          git fetch origin data-storage 2>/dev/null || true
+          if git ls-remote --exit-code --heads origin data-storage >/dev/null 2>&1; then
+            git worktree add -B data-storage data origin/data-storage
+          else
+            git worktree add --orphan -b data-storage data
+          fi
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync
+
+      - run: uv run fetch
+
+      - run: uv run generate_ics
+
+      - name: Commit and push crawled data
+        working-directory: data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update crawled data"
+            git push origin HEAD:data-storage
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: serve
+
+  deploy:
+    needs: crawl
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
