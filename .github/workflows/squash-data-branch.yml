@@ -1,0 +1,35 @@
+name: Squash data-storage branch
+
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: data-storage-branch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  squash:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: data-storage
+          fetch-depth: 1
+
+      - name: Squash history into a single commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout --orphan data-storage-squashed
+          git add -A
+          git commit -m "chore: squash data-storage history"
+
+          git branch -D data-storage
+          git branch -m data-storage
+          git push --force origin data-storage
